@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Menu, Wheat } from "lucide-react";
+import { Link } from "react-router-dom";
 
 export const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -26,7 +27,7 @@ export const Header = () => {
           </div>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex space-x-8">
+          <nav className="hidden md:flex space-x-8 items-center">
             {navItems.map((item) => (
               <a
                 key={item.name}
@@ -36,6 +37,11 @@ export const Header = () => {
                 {item.name}
               </a>
             ))}
+            <Link to="/dashboard">
+              <Button variant="outline" className="border-green-600 text-green-600 hover:bg-green-50">
+                Dashboard
+              </Button>
+            </Link>
           </nav>
 
           {/* Mobile Navigation */}
@@ -57,6 +63,11 @@ export const Header = () => {
                     {item.name}
                   </a>
                 ))}
+                <Link to="/dashboard" onClick={() => setIsOpen(false)}>
+                  <Button variant="outline" className="border-green-600 text-green-600 hover:bg-green-50 w-full">
+                    Dashboard
+                  </Button>
+                </Link>
               </div>
             </SheetContent>
           </Sheet>
