@@ -1,4 +1,3 @@
-
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -16,8 +15,10 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
   const [manualBarcode, setManualBarcode] = useState("");
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string>("");
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     // Initialize the code reader when component mounts
@@ -28,6 +29,7 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
     
     return () => {
       // Cleanup when component unmounts
+      stopCamera();
       if (codeReaderRef.current) {
         console.log('Cleaning up BrowserMultiFormatReader...');
         codeReaderRef.current.reset();
@@ -35,50 +37,68 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
     };
   }, []);
 
+  const checkCameraPermission = async () => {
+    try {
+      const result = await navigator.permissions.query({ name: 'camera' as PermissionName });
+      setHasPermission(result.state === 'granted');
+      return result.state === 'granted';
+    } catch (error) {
+      console.log('Permission API not supported, will try direct access');
+      return null;
+    }
+  };
+
   const startCamera = async () => {
     console.log('Starting camera scanner...');
     setIsScanning(true);
     setError("");
     
     try {
+      // Check camera permission first
+      await checkCameraPermission();
+
+      if (!videoRef.current) {
+        throw new Error("Video element not available");
+      }
+
+      // Request camera access
+      const constraints = {
+        video: {
+          facingMode: { ideal: 'environment' }, // Prefer back camera
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        }
+      };
+
+      console.log('Requesting camera access...');
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      
+      // Set video source
+      videoRef.current.srcObject = stream;
+      videoRef.current.play();
+
+      console.log('Camera stream started, initializing barcode reader...');
+
+      // Wait for video to be ready
+      await new Promise((resolve) => {
+        if (videoRef.current) {
+          videoRef.current.onloadedmetadata = () => resolve(true);
+        }
+      });
+
       // Ensure code reader is initialized
       if (!codeReaderRef.current) {
-        console.log('Code reader not found, initializing...');
         codeReaderRef.current = new BrowserMultiFormatReader();
       }
 
-      if (!videoRef.current) {
-        throw new Error("Video element not found");
-      }
-
-      console.log('Getting camera devices...');
-      // Get available video input devices using navigator.mediaDevices
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(device => device.kind === 'videoinput');
-      
-      console.log('Found video devices:', videoDevices.length);
-      
-      if (videoDevices.length === 0) {
-        throw new Error("No camera devices found");
-      }
-
-      // Try to use back camera if available (better for scanning)
-      const backCamera = videoDevices.find(device => 
-        device.label.toLowerCase().includes('back') || 
-        device.label.toLowerCase().includes('rear') ||
-        device.label.toLowerCase().includes('environment')
-      );
-      
-      const selectedDeviceId = backCamera?.deviceId || videoDevices[0].deviceId;
-      console.log('Using camera device:', selectedDeviceId);
-
-      // Start continuous decoding from video device
-      await codeReaderRef.current.decodeFromVideoDevice(
-        selectedDeviceId,
+      // Start continuous decoding
+      console.log('Starting barcode detection...');
+      codeReaderRef.current.decodeFromVideoElement(
         videoRef.current,
         (result, error) => {
           if (result) {
-            console.log('Barcode scanned:', result.getText());
+            console.log('Barcode detected:', result.getText());
             onBarcodeScanned(result.getText());
             stopCamera();
             setIsOpen(false);
@@ -90,25 +110,57 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       );
 
       console.log('Camera scanner started successfully');
+      setHasPermission(true);
 
     } catch (err) {
       console.error('Camera scanning error:', err);
-      if (err instanceof DOMException && err.name === 'NotAllowedError') {
-        setError("Camera access denied. Please allow camera permissions and try again.");
-      } else if (err instanceof DOMException && err.name === 'NotFoundError') {
-        setError("No camera found on this device.");
+      setIsScanning(false);
+      
+      if (err instanceof DOMException) {
+        switch (err.name) {
+          case 'NotAllowedError':
+            setError("Camera access denied. Please allow camera permissions and try again.");
+            setHasPermission(false);
+            break;
+          case 'NotFoundError':
+            setError("No camera found on this device.");
+            break;
+          case 'NotReadableError':
+            setError("Camera is already in use by another application.");
+            break;
+          case 'OverconstrainedError':
+            setError("Camera constraints could not be satisfied.");
+            break;
+          default:
+            setError(`Camera error: ${err.message}`);
+        }
       } else {
         setError(`Scanner error: ${err instanceof Error ? err.message : 'Unknown error'}`);
       }
-      setIsScanning(false);
     }
   };
 
   const stopCamera = () => {
     console.log('Stopping camera scanner...');
+    
+    // Stop the video stream
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+      });
+      streamRef.current = null;
+    }
+
+    // Clear video element
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    // Reset code reader
     if (codeReaderRef.current) {
       codeReaderRef.current.reset();
     }
+
     setIsScanning(false);
     setError("");
   };
@@ -132,6 +184,7 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
     }
     setIsOpen(open);
     setError("");
+    setManualBarcode("");
   };
 
   return (
@@ -151,13 +204,20 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
           <div className="space-y-2">
             <Label>Camera Scanner</Label>
             {!isScanning ? (
-              <Button 
-                onClick={startCamera}
-                className="w-full flex items-center gap-2"
-              >
-                <Camera className="h-4 w-4" />
-                Start Camera Scanner
-              </Button>
+              <div className="space-y-2">
+                <Button 
+                  onClick={startCamera}
+                  className="w-full flex items-center gap-2"
+                >
+                  <Camera className="h-4 w-4" />
+                  Start Camera Scanner
+                </Button>
+                {hasPermission === false && (
+                  <p className="text-sm text-amber-600">
+                    Camera permission is required. Please enable it in your browser settings.
+                  </p>
+                )}
+              </div>
             ) : (
               <div className="space-y-2">
                 <div className="relative bg-black rounded-lg overflow-hidden">
@@ -178,23 +238,35 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
+                  <div className="absolute bottom-2 left-2 right-2">
+                    <p className="text-white text-sm text-center bg-black bg-opacity-50 rounded px-2 py-1">
+                      Position the barcode within the frame
+                    </p>
+                  </div>
                 </div>
-                <p className="text-sm text-gray-600 text-center">
-                  Position the barcode within the frame
-                </p>
               </div>
             )}
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-md">
                 <p className="text-sm text-red-600">{error}</p>
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  onClick={() => setError("")}
-                  className="mt-2"
-                >
-                  Try Again
-                </Button>
+                <div className="mt-2 space-x-2">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => setError("")}
+                  >
+                    Dismiss
+                  </Button>
+                  {hasPermission === false && (
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      onClick={() => window.location.reload()}
+                    >
+                      Refresh Page
+                    </Button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -216,7 +288,7 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
                 placeholder="Enter barcode number"
                 onKeyPress={(e) => e.key === 'Enter' && handleManualSubmit()}
               />
-              <Button onClick={handleManualSubmit}>
+              <Button onClick={handleManualSubmit} disabled={!manualBarcode.trim()}>
                 Add
               </Button>
             </div>
@@ -241,6 +313,9 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
                 Sample 2
               </Button>
             </div>
+            <p className="text-xs text-gray-500">
+              Use these sample barcodes to test the functionality
+            </p>
           </div>
         </div>
       </DialogContent>
