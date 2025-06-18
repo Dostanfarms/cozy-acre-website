@@ -1,4 +1,3 @@
-
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Printer } from "lucide-react";
@@ -9,32 +8,63 @@ interface BarcodeDisplayProps {
 
 export const BarcodeDisplay = ({ barcode }: BarcodeDisplayProps) => {
   const generateBarcodePattern = (code: string) => {
-    // More realistic barcode pattern using Code 128 style encoding
+    // UPC-A encoding patterns
+    const leftPatterns = [
+      '0001101', '0011001', '0010011', '0111101', '0100011',
+      '0110001', '0101111', '0111011', '0110111', '0001011'
+    ];
+    
+    const rightPatterns = [
+      '1110010', '1100110', '1101100', '1000010', '1011100',
+      '1001110', '1010000', '1000100', '1001000', '1110100'
+    ];
+
     const patterns = [];
     
-    // Start pattern
-    patterns.push(<div key="start" className="h-12 w-1 bg-black" />);
+    // Start guard
+    patterns.push(<div key="start-guard" className="h-16 w-0.5 bg-black" />);
+    patterns.push(<div key="start-guard-2" className="h-16 w-0.5 bg-white" />);
+    patterns.push(<div key="start-guard-3" className="h-16 w-0.5 bg-black" />);
     
-    // Encode each digit with varying bar widths
-    code.split('').forEach((char, index) => {
-      const digit = parseInt(char);
-      // Create pattern based on digit value
-      for (let i = 0; i < 4; i++) {
-        const isWide = (digit + i) % 3 === 0;
-        const isBlack = i % 2 === 0;
+    // Left side (first 6 digits)
+    for (let i = 0; i < 6; i++) {
+      const digit = parseInt(code[i]);
+      const pattern = leftPatterns[digit];
+      for (let j = 0; j < pattern.length; j++) {
         patterns.push(
           <div
-            key={`${index}-${i}`}
-            className={`h-12 ${isWide ? 'w-1' : 'w-0.5'} ${
-              isBlack ? 'bg-black' : 'bg-white'
-            }`}
+            key={`left-${i}-${j}`}
+            className={`h-16 w-0.5 ${pattern[j] === '1' ? 'bg-black' : 'bg-white'}`}
           />
         );
       }
-    });
+    }
     
-    // End pattern
-    patterns.push(<div key="end" className="h-12 w-1 bg-black" />);
+    // Center guard
+    patterns.push(<div key="center-guard-1" className="h-16 w-0.5 bg-white" />);
+    patterns.push(<div key="center-guard-2" className="h-16 w-0.5 bg-black" />);
+    patterns.push(<div key="center-guard-3" className="h-16 w-0.5 bg-white" />);
+    patterns.push(<div key="center-guard-4" className="h-16 w-0.5 bg-black" />);
+    patterns.push(<div key="center-guard-5" className="h-16 w-0.5 bg-white" />);
+    
+    // Right side (last 6 digits)
+    for (let i = 6; i < 12; i++) {
+      const digit = parseInt(code[i]);
+      const pattern = rightPatterns[digit];
+      for (let j = 0; j < pattern.length; j++) {
+        patterns.push(
+          <div
+            key={`right-${i}-${j}`}
+            className={`h-16 w-0.5 ${pattern[j] === '1' ? 'bg-black' : 'bg-white'}`}
+          />
+        );
+      }
+    }
+    
+    // End guard
+    patterns.push(<div key="end-guard-1" className="h-16 w-0.5 bg-black" />);
+    patterns.push(<div key="end-guard-2" className="h-16 w-0.5 bg-white" />);
+    patterns.push(<div key="end-guard-3" className="h-16 w-0.5 bg-black" />);
     
     return patterns;
   };
@@ -53,43 +83,51 @@ export const BarcodeDisplay = ({ barcode }: BarcodeDisplayProps) => {
                 flex-direction: column; 
                 align-items: center; 
                 padding: 20px; 
+                margin: 0;
               }
               .barcode-container { 
                 display: flex; 
                 align-items: end; 
-                gap: 1px; 
+                gap: 0; 
                 padding: 20px; 
                 background: white; 
-                border: 1px solid #000; 
+                border: 2px solid #000; 
                 margin: 20px 0;
+                justify-content: center;
               }
-              .bar { height: 60px; }
-              .w-1 { width: 2px; }
+              .bar { 
+                height: 80px; 
+                display: inline-block;
+              }
               .w-0-5 { width: 1px; }
               .bg-black { background-color: black; }
               .bg-white { background-color: white; }
               .barcode-number { 
-                font-family: monospace; 
-                font-size: 18px; 
+                font-family: 'Courier New', monospace; 
+                font-size: 24px; 
                 font-weight: bold; 
                 margin-top: 10px;
+                letter-spacing: 2px;
+              }
+              .title {
+                font-size: 28px;
+                margin-bottom: 20px;
+                color: #333;
+              }
+              @media print {
+                body { margin: 0; }
+                .no-print { display: none; }
               }
             </style>
           </head>
           <body>
-            <h2>Product Barcode</h2>
+            <h1 class="title">Product Barcode</h1>
             <div class="barcode-container">
               ${barcode.split('').map((char, index) => {
-                const digit = parseInt(char);
-                let bars = '<div class="bar w-1 bg-black"></div>'; // start
-                for (let i = 0; i < 4; i++) {
-                  const isWide = (digit + i) % 3 === 0;
-                  const isBlack = i % 2 === 0;
-                  bars += `<div class="bar ${isWide ? 'w-1' : 'w-0-5'} ${isBlack ? 'bg-black' : 'bg-white'}"></div>`;
-                }
-                return bars;
+                // This is a simplified version for printing
+                const patterns = ['▌', '▐', '█', '▌', '▐', '█', '▌', '▐', '█', '▌'];
+                return `<span style="font-family: monospace; font-size: 40px; line-height: 80px;">${patterns[parseInt(char)]}</span>`;
               }).join('')}
-              <div class="bar w-1 bg-black"></div>
             </div>
             <div class="barcode-number">${barcode}</div>
             <script>
@@ -110,28 +148,29 @@ export const BarcodeDisplay = ({ barcode }: BarcodeDisplayProps) => {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
+        <Button variant="outline" size="sm" className="font-mono">
           {barcode}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Product Barcode</DialogTitle>
         </DialogHeader>
         <div className="text-center space-y-4">
-          <div className="flex justify-center items-end gap-px p-4 bg-white border">
+          <div className="flex justify-center items-end gap-0 p-6 bg-white border-2 border-gray-300 rounded-lg overflow-x-auto">
             {generateBarcodePattern(barcode)}
           </div>
-          <div className="font-mono text-lg font-bold">{barcode}</div>
+          <div className="font-mono text-xl font-bold tracking-wider">{barcode}</div>
           <div className="flex gap-2 justify-center">
             <Button onClick={handlePrint} variant="outline" className="flex items-center gap-2">
               <Printer className="h-4 w-4" />
               Print Barcode
             </Button>
           </div>
-          <p className="text-sm text-gray-600">
-            Scan this barcode or use the number for inventory tracking
-          </p>
+          <div className="text-sm text-gray-600 space-y-1">
+            <p>Scan this barcode with the camera scanner or enter the number manually</p>
+            <p className="font-mono bg-gray-100 p-2 rounded">{barcode}</p>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
