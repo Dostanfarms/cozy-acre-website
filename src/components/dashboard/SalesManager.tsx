@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ShoppingCart, Plus, Minus, Trash2 } from "lucide-react";
 import { getProducts, Product, saveSale, Sale } from "@/utils/localStorage";
+import { BarcodeScanner } from "./BarcodeScanner";
 
 interface CartItem extends Product {
   quantity: number;
@@ -23,6 +23,17 @@ export const SalesManager = () => {
   const filteredProducts = products.filter(product =>
     product.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const handleBarcodeScanned = (barcode: string) => {
+    console.log('Scanned barcode:', barcode);
+    const product = products.find(p => p.barcode === barcode);
+    if (product) {
+      addToCart(product);
+      alert(`Added ${product.name} to cart!`);
+    } else {
+      alert(`No product found with barcode: ${barcode}`);
+    }
+  };
 
   const addToCart = (product: Product) => {
     setCart(prevCart => {
@@ -108,8 +119,13 @@ export const SalesManager = () => {
       <div className="lg:col-span-2">
         <Card>
           <CardHeader>
-            <CardTitle>Products</CardTitle>
-            <CardDescription>Select products to add to cart</CardDescription>
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <CardTitle>Products</CardTitle>
+                <CardDescription>Select products to add to cart or scan barcode</CardDescription>
+              </div>
+              <BarcodeScanner onBarcodeScanned={handleBarcodeScanned} />
+            </div>
             <Input
               placeholder="Search products..."
               value={searchTerm}
