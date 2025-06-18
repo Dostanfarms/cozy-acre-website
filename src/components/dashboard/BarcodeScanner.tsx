@@ -40,38 +40,43 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
         throw new Error("Scanner not initialized");
       }
 
-      // Get available video input devices
-      const videoInputDevices = await BrowserMultiFormatReader.listVideoInputDevices();
+      // Get available video input devices using navigator.mediaDevices
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
       
-      if (videoInputDevices.length === 0) {
+      if (videoDevices.length === 0) {
         throw new Error("No camera devices found");
       }
 
       // Try to use back camera if available (better for scanning)
-      const backCamera = videoInputDevices.find(device => 
+      const backCamera = videoDevices.find(device => 
         device.label.toLowerCase().includes('back') || 
-        device.label.toLowerCase().includes('rear')
+        device.label.toLowerCase().includes('rear') ||
+        device.label.toLowerCase().includes('environment')
       );
       
-      const selectedDeviceId = backCamera ? backCamera.deviceId : videoInputDevices[0].deviceId;
+      const selectedDeviceId = backCamera?.deviceId || videoDevices[0].deviceId;
 
-      // Start decoding from video device
-      const result = await codeReaderRef.current.decodeOnceFromVideoDevice(
+      // Start continuous decoding from video device
+      await codeReaderRef.current.decodeFromVideoDevice(
         selectedDeviceId,
-        videoRef.current
+        videoRef.current,
+        (result, error) => {
+          if (result) {
+            console.log('Barcode scanned:', result.getText());
+            onBarcodeScanned(result.getText());
+            stopCamera();
+            setIsOpen(false);
+          }
+          if (error && !(error instanceof NotFoundException)) {
+            console.error('Decode error:', error);
+          }
+        }
       );
 
-      if (result) {
-        console.log('Barcode scanned:', result.getText());
-        onBarcodeScanned(result.getText());
-        stopCamera();
-        setIsOpen(false);
-      }
     } catch (err) {
       console.error('Camera scanning error:', err);
-      if (err instanceof NotFoundException) {
-        setError("No barcode found. Please try again or position the barcode better.");
-      } else if (err instanceof DOMException && err.name === 'NotAllowedError') {
+      if (err instanceof DOMException && err.name === 'NotAllowedError') {
         setError("Camera access denied. Please allow camera permissions and try again.");
       } else if (err instanceof DOMException && err.name === 'NotFoundError') {
         setError("No camera found on this device.");
