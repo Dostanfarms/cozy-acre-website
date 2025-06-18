@@ -20,29 +20,43 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
   const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
 
   useEffect(() => {
-    // Initialize the code reader
-    codeReaderRef.current = new BrowserMultiFormatReader();
+    // Initialize the code reader when component mounts
+    if (!codeReaderRef.current) {
+      console.log('Initializing BrowserMultiFormatReader...');
+      codeReaderRef.current = new BrowserMultiFormatReader();
+    }
     
     return () => {
       // Cleanup when component unmounts
       if (codeReaderRef.current) {
+        console.log('Cleaning up BrowserMultiFormatReader...');
         codeReaderRef.current.reset();
       }
     };
   }, []);
 
   const startCamera = async () => {
+    console.log('Starting camera scanner...');
     setIsScanning(true);
     setError("");
     
     try {
-      if (!codeReaderRef.current || !videoRef.current) {
-        throw new Error("Scanner not initialized");
+      // Ensure code reader is initialized
+      if (!codeReaderRef.current) {
+        console.log('Code reader not found, initializing...');
+        codeReaderRef.current = new BrowserMultiFormatReader();
       }
 
+      if (!videoRef.current) {
+        throw new Error("Video element not found");
+      }
+
+      console.log('Getting camera devices...');
       // Get available video input devices using navigator.mediaDevices
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      
+      console.log('Found video devices:', videoDevices.length);
       
       if (videoDevices.length === 0) {
         throw new Error("No camera devices found");
@@ -56,6 +70,7 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       );
       
       const selectedDeviceId = backCamera?.deviceId || videoDevices[0].deviceId;
+      console.log('Using camera device:', selectedDeviceId);
 
       // Start continuous decoding from video device
       await codeReaderRef.current.decodeFromVideoDevice(
@@ -74,6 +89,8 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
         }
       );
 
+      console.log('Camera scanner started successfully');
+
     } catch (err) {
       console.error('Camera scanning error:', err);
       if (err instanceof DOMException && err.name === 'NotAllowedError') {
@@ -88,6 +105,7 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
   };
 
   const stopCamera = () => {
+    console.log('Stopping camera scanner...');
     if (codeReaderRef.current) {
       codeReaderRef.current.reset();
     }
@@ -148,6 +166,7 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
                     className="w-full h-48 object-cover"
                     playsInline
                     muted
+                    autoPlay
                   />
                   <div className="absolute inset-0 border-2 border-white border-dashed m-4 rounded-lg opacity-50"></div>
                   <div className="absolute top-2 right-2">
