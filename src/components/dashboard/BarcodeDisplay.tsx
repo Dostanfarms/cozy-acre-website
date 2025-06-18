@@ -1,7 +1,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { barcode } from "lucide-react";
+import { Barcode } from "lucide-react";
 
 interface BarcodeDisplayProps {
   barcode: string;
