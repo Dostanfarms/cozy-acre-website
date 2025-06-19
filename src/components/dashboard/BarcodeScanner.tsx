@@ -1,3 +1,4 @@
+
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
@@ -21,25 +22,27 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
   const streamRef = useRef<MediaStream | null>(null);
   const scanningRef = useRef<boolean>(false);
 
-  // Auto-start camera when dialog opens with a delay to ensure video element is mounted
+  // Auto-start camera when dialog opens with proper DOM readiness check
   useEffect(() => {
-    if (isOpen && !isScanning) {
-      // Add a small delay to ensure the video element is rendered
-      const timer = setTimeout(() => {
-        if (videoRef.current) {
-          startCamera();
-        } else {
-          console.log('Video element still not available, retrying...');
-          // Try again after another delay
-          setTimeout(() => {
-            if (videoRef.current && isOpen) {
-              startCamera();
-            }
-          }, 500);
-        }
-      }, 100);
+    if (isOpen) {
+      console.log('Dialog opened, preparing camera...');
+      setScanStatus("Preparing camera...");
       
-      return () => clearTimeout(timer);
+      // Use requestAnimationFrame to ensure DOM is ready
+      const initializeCamera = () => {
+        requestAnimationFrame(() => {
+          if (videoRef.current && isOpen) {
+            console.log('Video element found, starting camera...');
+            startCamera();
+          } else if (isOpen) {
+            console.log('Video element not ready, retrying...');
+            // Retry after a short delay
+            setTimeout(initializeCamera, 100);
+          }
+        });
+      };
+      
+      initializeCamera();
     } else if (!isOpen && isScanning) {
       stopCamera();
     }
@@ -59,13 +62,14 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
     
     if (!videoRef.current) {
       console.error('Video element not available');
-      setError("Camera initialization failed. Please try again.");
+      setError("Camera initialization failed. Video element not ready.");
+      setScanStatus("");
       return;
     }
 
     setIsScanning(true);
     setError("");
-    setScanStatus("Initializing camera...");
+    setScanStatus("Requesting camera access...");
     
     try {
       const constraints = {
@@ -77,23 +81,27 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       };
 
       console.log('Requesting camera access...');
-      setScanStatus("Requesting camera access...");
       
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       
       videoRef.current.srcObject = stream;
+      setScanStatus("Loading camera...");
       
+      // Wait for video to be ready
       await new Promise((resolve, reject) => {
         if (videoRef.current) {
           videoRef.current.onloadedmetadata = () => {
+            console.log('Video metadata loaded');
             videoRef.current?.play().then(resolve).catch(reject);
           };
           videoRef.current.onerror = reject;
+        } else {
+          reject(new Error('Video element lost'));
         }
       });
 
-      setScanStatus("Camera ready, starting barcode detection...");
+      setScanStatus("Camera ready, initializing scanner...");
       console.log('Camera stream started, initializing barcode reader...');
 
       if (!codeReaderRef.current) {
@@ -236,45 +244,34 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
           {/* Camera Scanner */}
           <div className="space-y-2">
             <Label>Camera Scanner</Label>
-            {isScanning ? (
-              <div className="space-y-2">
-                <div className="relative bg-black rounded-lg overflow-hidden">
-                  <video
-                    ref={videoRef}
-                    className="w-full h-64 object-cover"
-                    playsInline
-                    muted
-                    autoPlay
-                  />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="border-2 border-green-400 border-dashed w-48 h-32 rounded-lg opacity-75"></div>
-                  </div>
-                  <div className="absolute top-2 right-2">
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => setIsOpen(false)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <div className="absolute bottom-2 left-2 right-2">
-                    <p className="text-white text-sm text-center bg-black bg-opacity-75 rounded px-2 py-1">
-                      {scanStatus || "Position barcode within the green frame"}
-                    </p>
-                  </div>
+            <div className="relative bg-black rounded-lg overflow-hidden">
+              <video
+                ref={videoRef}
+                className="w-full h-64 object-cover"
+                playsInline
+                muted
+                autoPlay
+              />
+              {isScanning && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="border-2 border-green-400 border-dashed w-48 h-32 rounded-lg opacity-75"></div>
                 </div>
-                <div className="text-center">
-                  <p className="text-sm text-gray-600">
-                    Hold steady and ensure good lighting for best results
-                  </p>
-                </div>
+              )}
+              <div className="absolute top-2 right-2">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => setIsOpen(false)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
               </div>
-            ) : (
-              <div className="p-4 bg-gray-100 rounded-lg text-center">
-                <p className="text-sm text-gray-600">Camera is starting...</p>
+              <div className="absolute bottom-2 left-2 right-2">
+                <p className="text-white text-sm text-center bg-black bg-opacity-75 rounded px-2 py-1">
+                  {scanStatus || "Initializing camera..."}
+                </p>
               </div>
-            )}
+            </div>
             
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-md">
@@ -283,16 +280,22 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
                   <Button 
                     size="sm" 
                     variant="outline" 
-                    onClick={() => setError("")}
+                    onClick={() => {
+                      setError("");
+                      setScanStatus("");
+                      if (videoRef.current && isOpen) {
+                        startCamera();
+                      }
+                    }}
                   >
-                    Dismiss
+                    Retry
                   </Button>
                   <Button 
                     size="sm" 
                     variant="outline" 
-                    onClick={() => window.location.reload()}
+                    onClick={() => setError("")}
                   >
-                    Refresh Page
+                    Dismiss
                   </Button>
                 </div>
               </div>
