@@ -1,7 +1,6 @@
-
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScanBarcode, X } from "lucide-react";
@@ -22,10 +21,25 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
   const streamRef = useRef<MediaStream | null>(null);
   const scanningRef = useRef<boolean>(false);
 
-  // Auto-start camera when dialog opens
+  // Auto-start camera when dialog opens with a delay to ensure video element is mounted
   useEffect(() => {
     if (isOpen && !isScanning) {
-      startCamera();
+      // Add a small delay to ensure the video element is rendered
+      const timer = setTimeout(() => {
+        if (videoRef.current) {
+          startCamera();
+        } else {
+          console.log('Video element still not available, retrying...');
+          // Try again after another delay
+          setTimeout(() => {
+            if (videoRef.current && isOpen) {
+              startCamera();
+            }
+          }, 500);
+        }
+      }, 100);
+      
+      return () => clearTimeout(timer);
     } else if (!isOpen && isScanning) {
       stopCamera();
     }
@@ -42,15 +56,18 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
 
   const startCamera = async () => {
     console.log('Starting camera scanner...');
+    
+    if (!videoRef.current) {
+      console.error('Video element not available');
+      setError("Camera initialization failed. Please try again.");
+      return;
+    }
+
     setIsScanning(true);
     setError("");
     setScanStatus("Initializing camera...");
     
     try {
-      if (!videoRef.current) {
-        throw new Error("Video element not available");
-      }
-
       const constraints = {
         video: {
           facingMode: { ideal: 'environment' },
@@ -211,6 +228,9 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Scan Product Barcode</DialogTitle>
+          <DialogDescription>
+            Point your camera at a barcode to scan it automatically, or enter it manually below.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           {/* Camera Scanner */}
