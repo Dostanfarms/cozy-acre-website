@@ -20,30 +20,17 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const scanningRef = useRef<boolean>(false);
+  const animationFrameRef = useRef<number | null>(null);
 
-  // Auto-start camera when dialog opens with proper DOM readiness check
+  // Auto-start camera when dialog opens
   useEffect(() => {
     if (isOpen) {
-      console.log('Dialog opened, preparing camera...');
-      setScanStatus("Preparing camera...");
-      
-      // Use requestAnimationFrame to ensure DOM is ready
-      const initializeCamera = () => {
-        requestAnimationFrame(() => {
-          if (videoRef.current && isOpen) {
-            console.log('Video element found, starting camera...');
-            startCamera();
-          } else if (isOpen) {
-            console.log('Video element not ready, retrying...');
-            // Retry after a short delay
-            setTimeout(initializeCamera, 100);
-          }
-        });
-      };
-      
-      initializeCamera();
-    } else if (!isOpen && isScanning) {
+      console.log('Dialog opened, starting camera...');
+      const timeoutId = setTimeout(() => {
+        startCamera();
+      }, 100);
+      return () => clearTimeout(timeoutId);
+    } else {
       stopCamera();
     }
   }, [isOpen]);
@@ -69,9 +56,14 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
 
     setIsScanning(true);
     setError("");
-    setScanStatus("Requesting camera access...");
+    setScanStatus("Starting camera...");
     
     try {
+      // Initialize code reader
+      if (!codeReaderRef.current) {
+        codeReaderRef.current = new BrowserMultiFormatReader();
+      }
+
       const constraints = {
         video: {
           facingMode: { ideal: 'environment' },
@@ -81,19 +73,24 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       };
 
       console.log('Requesting camera access...');
+      setScanStatus("Requesting camera access...");
       
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       
+      if (!videoRef.current) {
+        throw new Error('Video element lost during initialization');
+      }
+
       videoRef.current.srcObject = stream;
-      setScanStatus("Loading camera...");
+      setScanStatus("Camera ready, starting scan...");
       
       // Wait for video to be ready
-      await new Promise((resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
         if (videoRef.current) {
           videoRef.current.onloadedmetadata = () => {
             console.log('Video metadata loaded');
-            videoRef.current?.play().then(resolve).catch(reject);
+            videoRef.current?.play().then(() => resolve()).catch(reject);
           };
           videoRef.current.onerror = reject;
         } else {
@@ -101,18 +98,11 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
         }
       });
 
-      setScanStatus("Camera ready, initializing scanner...");
-      console.log('Camera stream started, initializing barcode reader...');
-
-      if (!codeReaderRef.current) {
-        codeReaderRef.current = new BrowserMultiFormatReader();
-      }
-
-      scanningRef.current = true;
-      startContinuousScanning();
-
+      console.log('Camera stream started, beginning barcode scanning...');
       setScanStatus("Scanning... Point camera at barcode");
-      console.log('Camera scanner started successfully');
+      
+      // Start scanning
+      startBarcodeScanning();
 
     } catch (err) {
       console.error('Camera scanning error:', err);
@@ -142,19 +132,19 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
     }
   };
 
-  const startContinuousScanning = () => {
-    if (!codeReaderRef.current || !videoRef.current || !scanningRef.current) {
+  const startBarcodeScanning = () => {
+    if (!codeReaderRef.current || !videoRef.current || !isScanning) {
       return;
     }
 
-    const scanFrame = async () => {
-      if (!scanningRef.current || !codeReaderRef.current || !videoRef.current) {
+    const scanFrame = () => {
+      if (!codeReaderRef.current || !videoRef.current || !isScanning) {
         return;
       }
 
       try {
-        const result = await codeReaderRef.current.decodeFromVideoElement(videoRef.current);
-        if (result && scanningRef.current) {
+        const result = codeReaderRef.current.decodeFromVideoElement(videoRef.current);
+        if (result) {
           console.log('Barcode detected:', result.getText());
           setScanStatus(`Found: ${result.getText()}`);
           onBarcodeScanned(result.getText());
@@ -163,25 +153,33 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
           return;
         }
       } catch (error) {
-        if (error instanceof NotFoundException) {
-          // No barcode found, continue scanning
-        } else {
-          console.log('Decode attempt failed:', error);
+        // No barcode found in this frame, continue scanning
+        if (!(error instanceof NotFoundException)) {
+          console.log('Decode error (continuing):', error);
         }
-        
-        if (scanningRef.current) {
-          setTimeout(scanFrame, 100);
-        }
+      }
+      
+      // Continue scanning
+      if (isScanning) {
+        animationFrameRef.current = requestAnimationFrame(scanFrame);
       }
     };
 
-    scanFrame();
+    // Start the scanning loop
+    animationFrameRef.current = requestAnimationFrame(scanFrame);
   };
 
   const stopCamera = () => {
     console.log('Stopping camera scanner...');
-    scanningRef.current = false;
+    setIsScanning(false);
     
+    // Stop animation frame
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    
+    // Stop video stream
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => {
         track.stop();
@@ -189,15 +187,16 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       streamRef.current = null;
     }
 
+    // Clear video element
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
 
+    // Reset code reader
     if (codeReaderRef.current) {
       codeReaderRef.current.reset();
     }
 
-    setIsScanning(false);
     setScanStatus("");
     setError("");
   };
@@ -268,7 +267,7 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
               </div>
               <div className="absolute bottom-2 left-2 right-2">
                 <p className="text-white text-sm text-center bg-black bg-opacity-75 rounded px-2 py-1">
-                  {scanStatus || "Initializing camera..."}
+                  {scanStatus || "Starting scanner..."}
                 </p>
               </div>
             </div>
@@ -283,7 +282,7 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
                     onClick={() => {
                       setError("");
                       setScanStatus("");
-                      if (videoRef.current && isOpen) {
+                      if (isOpen) {
                         startCamera();
                       }
                     }}
