@@ -26,10 +26,10 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
   useEffect(() => {
     if (isOpen) {
       console.log('Dialog opened, starting camera...');
-      const timeoutId = setTimeout(() => {
+      // Use requestAnimationFrame to ensure DOM is ready
+      requestAnimationFrame(() => {
         startCamera();
-      }, 100);
-      return () => clearTimeout(timeoutId);
+      });
     } else {
       stopCamera();
     }
@@ -90,7 +90,10 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
         if (videoRef.current) {
           videoRef.current.onloadedmetadata = () => {
             console.log('Video metadata loaded');
-            videoRef.current?.play().then(() => resolve()).catch(reject);
+            videoRef.current?.play().then(() => {
+              console.log('Video started playing');
+              resolve();
+            }).catch(reject);
           };
           videoRef.current.onerror = reject;
         } else {
@@ -137,13 +140,13 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       return;
     }
 
-    const scanFrame = () => {
+    const scanFrame = async () => {
       if (!codeReaderRef.current || !videoRef.current || !isScanning) {
         return;
       }
 
       try {
-        const result = codeReaderRef.current.decodeFromVideoElement(videoRef.current);
+        const result = await codeReaderRef.current.decodeFromVideoElement(videoRef.current);
         if (result) {
           console.log('Barcode detected:', result.getText());
           setScanStatus(`Found: ${result.getText()}`);
