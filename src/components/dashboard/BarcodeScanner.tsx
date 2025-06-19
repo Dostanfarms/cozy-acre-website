@@ -122,34 +122,30 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       return;
     }
 
-    const scanFrame = () => {
+    const scanFrame = async () => {
       if (!scanningRef.current || !codeReaderRef.current || !videoRef.current) {
         return;
       }
 
       try {
-        codeReaderRef.current.decodeFromVideoElement(videoRef.current, (result, error) => {
-          if (result && scanningRef.current) {
-            console.log('Barcode detected:', result.getText());
-            setScanStatus(`Found: ${result.getText()}`);
-            onBarcodeScanned(result.getText());
-            stopCamera();
-            setIsOpen(false);
-            return;
-          }
-          
-          if (error && !(error instanceof NotFoundException)) {
-            console.log('Decode attempt failed:', error.message);
-          }
-          
-          if (scanningRef.current) {
-            setTimeout(scanFrame, 100);
-          }
-        });
+        const result = await codeReaderRef.current.decodeFromVideoElement(videoRef.current);
+        if (result && scanningRef.current) {
+          console.log('Barcode detected:', result.getText());
+          setScanStatus(`Found: ${result.getText()}`);
+          onBarcodeScanned(result.getText());
+          stopCamera();
+          setIsOpen(false);
+          return;
+        }
       } catch (error) {
-        console.error('Scanning error:', error);
+        if (error instanceof NotFoundException) {
+          // No barcode found, continue scanning
+        } else {
+          console.log('Decode attempt failed:', error);
+        }
+        
         if (scanningRef.current) {
-          setTimeout(scanFrame, 200);
+          setTimeout(scanFrame, 100);
         }
       }
     };
