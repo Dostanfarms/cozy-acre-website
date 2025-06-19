@@ -20,16 +20,13 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
+  const scanningRef = useRef<boolean>(false);
 
   // Auto-start camera when dialog opens
   useEffect(() => {
     if (isOpen) {
       console.log('Dialog opened, starting camera...');
-      // Use requestAnimationFrame to ensure DOM is ready
-      requestAnimationFrame(() => {
-        startCamera();
-      });
+      startCamera();
     } else {
       stopCamera();
     }
@@ -59,9 +56,13 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
     setScanStatus("Starting camera...");
     
     try {
-      // Initialize code reader
+      // Initialize code reader with better settings
       if (!codeReaderRef.current) {
         codeReaderRef.current = new BrowserMultiFormatReader();
+        // Set hints for better barcode detection
+        codeReaderRef.current.hints.set(2, true); // Enable EAN_13
+        codeReaderRef.current.hints.set(1, true); // Enable EAN_8
+        codeReaderRef.current.hints.set(32, true); // Enable CODE_128
       }
 
       const constraints = {
@@ -104,8 +105,9 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       console.log('Camera stream started, beginning barcode scanning...');
       setScanStatus("Scanning... Point camera at barcode");
       
-      // Start scanning
-      startBarcodeScanning();
+      // Start continuous scanning
+      scanningRef.current = true;
+      startContinuousScanning();
 
     } catch (err) {
       console.error('Camera scanning error:', err);
@@ -135,52 +137,40 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
     }
   };
 
-  const startBarcodeScanning = () => {
-    if (!codeReaderRef.current || !videoRef.current || !isScanning) {
+  const startContinuousScanning = async () => {
+    if (!codeReaderRef.current || !videoRef.current || !scanningRef.current) {
       return;
     }
 
-    const scanFrame = async () => {
-      if (!codeReaderRef.current || !videoRef.current || !isScanning) {
+    try {
+      console.log('Attempting to decode barcode...');
+      const result = await codeReaderRef.current.decodeFromVideoElement(videoRef.current);
+      
+      if (result && scanningRef.current) {
+        console.log('Barcode detected:', result.getText());
+        setScanStatus(`Found: ${result.getText()}`);
+        onBarcodeScanned(result.getText());
+        stopCamera();
+        setIsOpen(false);
         return;
       }
-
-      try {
-        const result = await codeReaderRef.current.decodeFromVideoElement(videoRef.current);
-        if (result) {
-          console.log('Barcode detected:', result.getText());
-          setScanStatus(`Found: ${result.getText()}`);
-          onBarcodeScanned(result.getText());
-          stopCamera();
-          setIsOpen(false);
-          return;
-        }
-      } catch (error) {
-        // No barcode found in this frame, continue scanning
-        if (!(error instanceof NotFoundException)) {
-          console.log('Decode error (continuing):', error);
-        }
+    } catch (error) {
+      // Only log non-NotFoundException errors
+      if (!(error instanceof NotFoundException)) {
+        console.log('Decode error (continuing):', error);
       }
-      
-      // Continue scanning
-      if (isScanning) {
-        animationFrameRef.current = requestAnimationFrame(scanFrame);
-      }
-    };
-
-    // Start the scanning loop
-    animationFrameRef.current = requestAnimationFrame(scanFrame);
+    }
+    
+    // Continue scanning if still active
+    if (scanningRef.current) {
+      setTimeout(() => startContinuousScanning(), 100);
+    }
   };
 
   const stopCamera = () => {
     console.log('Stopping camera scanner...');
     setIsScanning(false);
-    
-    // Stop animation frame
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
+    scanningRef.current = false;
     
     // Stop video stream
     if (streamRef.current) {
