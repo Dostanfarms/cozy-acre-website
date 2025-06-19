@@ -1,9 +1,10 @@
+
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ScanBarcode, Camera, X } from "lucide-react";
+import { ScanBarcode, X } from "lucide-react";
 import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
 
 interface BarcodeScannerProps {
@@ -21,18 +22,19 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
   const streamRef = useRef<MediaStream | null>(null);
   const scanningRef = useRef<boolean>(false);
 
+  // Auto-start camera when dialog opens
   useEffect(() => {
-    // Initialize the code reader when component mounts
-    if (!codeReaderRef.current) {
-      console.log('Initializing BrowserMultiFormatReader...');
-      codeReaderRef.current = new BrowserMultiFormatReader();
+    if (isOpen && !isScanning) {
+      startCamera();
+    } else if (!isOpen && isScanning) {
+      stopCamera();
     }
-    
+  }, [isOpen]);
+
+  useEffect(() => {
     return () => {
-      // Cleanup when component unmounts
       stopCamera();
       if (codeReaderRef.current) {
-        console.log('Cleaning up BrowserMultiFormatReader...');
         codeReaderRef.current.reset();
       }
     };
@@ -49,13 +51,11 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
         throw new Error("Video element not available");
       }
 
-      // Request camera access with better constraints
       const constraints = {
         video: {
-          facingMode: { ideal: 'environment' }, // Prefer back camera
+          facingMode: { ideal: 'environment' },
           width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 },
-          focusMode: { ideal: 'continuous' }
+          height: { ideal: 720, min: 480 }
         }
       };
 
@@ -65,10 +65,8 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       
-      // Set video source
       videoRef.current.srcObject = stream;
       
-      // Wait for video to load and play
       await new Promise((resolve, reject) => {
         if (videoRef.current) {
           videoRef.current.onloadedmetadata = () => {
@@ -81,12 +79,10 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       setScanStatus("Camera ready, starting barcode detection...");
       console.log('Camera stream started, initializing barcode reader...');
 
-      // Ensure code reader is initialized
       if (!codeReaderRef.current) {
         codeReaderRef.current = new BrowserMultiFormatReader();
       }
 
-      // Start continuous scanning
       scanningRef.current = true;
       startContinuousScanning();
 
@@ -132,7 +128,6 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       }
 
       try {
-        // Try to decode from the current video frame
         codeReaderRef.current.decodeFromVideoElement(videoRef.current, (result, error) => {
           if (result && scanningRef.current) {
             console.log('Barcode detected:', result.getText());
@@ -147,20 +142,18 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
             console.log('Decode attempt failed:', error.message);
           }
           
-          // Continue scanning if still active
           if (scanningRef.current) {
-            setTimeout(scanFrame, 100); // Scan every 100ms
+            setTimeout(scanFrame, 100);
           }
         });
       } catch (error) {
         console.error('Scanning error:', error);
         if (scanningRef.current) {
-          setTimeout(scanFrame, 200); // Retry after 200ms
+          setTimeout(scanFrame, 200);
         }
       }
     };
 
-    // Start the scanning loop
     scanFrame();
   };
 
@@ -168,7 +161,6 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
     console.log('Stopping camera scanner...');
     scanningRef.current = false;
     
-    // Stop the video stream
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => {
         track.stop();
@@ -176,12 +168,10 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       streamRef.current = null;
     }
 
-    // Clear video element
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
 
-    // Reset code reader
     if (codeReaderRef.current) {
       codeReaderRef.current.reset();
     }
@@ -205,13 +195,13 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
   };
 
   const handleDialogClose = (open: boolean) => {
-    if (!open && isScanning) {
-      stopCamera();
-    }
     setIsOpen(open);
-    setError("");
-    setScanStatus("");
-    setManualBarcode("");
+    if (!open) {
+      stopCamera();
+      setError("");
+      setScanStatus("");
+      setManualBarcode("");
+    }
   };
 
   return (
@@ -230,20 +220,7 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
           {/* Camera Scanner */}
           <div className="space-y-2">
             <Label>Camera Scanner</Label>
-            {!isScanning ? (
-              <div className="space-y-2">
-                <Button 
-                  onClick={startCamera}
-                  className="w-full flex items-center gap-2"
-                >
-                  <Camera className="h-4 w-4" />
-                  Start Camera Scanner
-                </Button>
-                <p className="text-sm text-gray-600">
-                  Make sure to allow camera permissions when prompted
-                </p>
-              </div>
-            ) : (
+            {isScanning ? (
               <div className="space-y-2">
                 <div className="relative bg-black rounded-lg overflow-hidden">
                   <video
@@ -253,21 +230,18 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
                     muted
                     autoPlay
                   />
-                  {/* Scanning overlay */}
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="border-2 border-green-400 border-dashed w-48 h-32 rounded-lg opacity-75"></div>
                   </div>
-                  {/* Controls */}
                   <div className="absolute top-2 right-2">
                     <Button
                       size="sm"
                       variant="destructive"
-                      onClick={stopCamera}
+                      onClick={() => setIsOpen(false)}
                     >
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
-                  {/* Status */}
                   <div className="absolute bottom-2 left-2 right-2">
                     <p className="text-white text-sm text-center bg-black bg-opacity-75 rounded px-2 py-1">
                       {scanStatus || "Position barcode within the green frame"}
@@ -280,7 +254,12 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
                   </p>
                 </div>
               </div>
+            ) : (
+              <div className="p-4 bg-gray-100 rounded-lg text-center">
+                <p className="text-sm text-gray-600">Camera is starting...</p>
+              </div>
             )}
+            
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-md">
                 <p className="text-sm text-red-600">{error}</p>
