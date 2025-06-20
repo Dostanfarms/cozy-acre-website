@@ -1,3 +1,4 @@
+
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
@@ -21,11 +22,15 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
   const streamRef = useRef<MediaStream | null>(null);
   const scanningRef = useRef<boolean>(false);
 
-  // Auto-start camera when dialog opens
+  // Delay camera start to ensure video element is ready
   useEffect(() => {
     if (isOpen) {
-      console.log('Dialog opened, starting camera...');
-      startCamera();
+      console.log('Dialog opened, waiting for video element...');
+      // Add a small delay to ensure the video element is rendered
+      const timer = setTimeout(() => {
+        startCamera();
+      }, 100);
+      return () => clearTimeout(timer);
     } else {
       stopCamera();
     }
@@ -71,50 +76,26 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
         codeReaderRef.current.hints = hints;
       }
 
-      // ... keep existing code (camera constraints and stream setup)
-      const constraints = {
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 }
-        }
-      };
-
       console.log('Requesting camera access...');
       setScanStatus("Requesting camera access...");
       
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      
-      if (!videoRef.current) {
-        throw new Error('Video element lost during initialization');
-      }
-
-      videoRef.current.srcObject = stream;
-      setScanStatus("Camera ready, starting scan...");
-      
-      // Wait for video to be ready
-      await new Promise<void>((resolve, reject) => {
-        if (videoRef.current) {
-          videoRef.current.onloadedmetadata = () => {
-            console.log('Video metadata loaded');
-            videoRef.current?.play().then(() => {
-              console.log('Video started playing');
-              resolve();
-            }).catch(reject);
-          };
-          videoRef.current.onerror = reject;
-        } else {
-          reject(new Error('Video element lost'));
-        }
-      });
-
-      console.log('Camera stream started, beginning barcode scanning...');
-      setScanStatus("Scanning... Point camera at barcode");
-      
-      // Start continuous scanning
+      // Use the ZXing library's built-in camera handling instead of manual setup
       scanningRef.current = true;
-      startContinuousScanning();
+      
+      // Start continuous decoding directly with ZXing's method
+      const result = await codeReaderRef.current.decodeOnceFromVideoDevice(undefined, videoRef.current);
+      
+      if (result && scanningRef.current) {
+        console.log('Barcode detected:', result.getText());
+        setScanStatus(`Found: ${result.getText()}`);
+        onBarcodeScanned(result.getText());
+        stopCamera();
+        setIsOpen(false);
+        return;
+      } else {
+        // If no immediate result, start continuous scanning
+        startContinuousScanning();
+      }
 
     } catch (err) {
       console.error('Camera scanning error:', err);
@@ -149,28 +130,40 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       return;
     }
 
+    setScanStatus("Scanning... Point camera at barcode");
+
     try {
-      console.log('Attempting to decode barcode...');
-      const result = await codeReaderRef.current.decodeFromVideoElement(videoRef.current);
+      console.log('Starting continuous scanning...');
       
-      if (result && scanningRef.current) {
-        console.log('Barcode detected:', result.getText());
-        setScanStatus(`Found: ${result.getText()}`);
-        onBarcodeScanned(result.getText());
-        stopCamera();
-        setIsOpen(false);
-        return;
-      }
+      // Use ZXing's continuous decode method
+      const controls = await codeReaderRef.current.decodeFromVideoDevice(
+        undefined, 
+        videoRef.current, 
+        (result, error) => {
+          if (result && scanningRef.current) {
+            console.log('Barcode detected:', result.getText());
+            setScanStatus(`Found: ${result.getText()}`);
+            onBarcodeScanned(result.getText());
+            stopCamera();
+            setIsOpen(false);
+          }
+          // Don't log NotFoundException errors as they're expected during scanning
+          if (error && !(error instanceof NotFoundException)) {
+            console.log('Decode error:', error);
+          }
+        }
+      );
+      
+      // Store the controls to stop later
+      streamRef.current = controls as any;
+      
     } catch (error) {
-      // Only log non-NotFoundException errors
-      if (!(error instanceof NotFoundException)) {
-        console.log('Decode error (continuing):', error);
+      console.error('Continuous scanning error:', error);
+      if (scanningRef.current) {
+        setError("Failed to start barcode scanning. Please try again.");
+        setIsScanning(false);
+        setScanStatus("");
       }
-    }
-    
-    // Continue scanning if still active
-    if (scanningRef.current) {
-      setTimeout(() => startContinuousScanning(), 100);
     }
   };
 
@@ -179,12 +172,9 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
     setIsScanning(false);
     scanningRef.current = false;
     
-    // Stop video stream
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => {
-        track.stop();
-      });
-      streamRef.current = null;
+    // Reset code reader which should stop all streams
+    if (codeReaderRef.current) {
+      codeReaderRef.current.reset();
     }
 
     // Clear video element
@@ -192,11 +182,7 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       videoRef.current.srcObject = null;
     }
 
-    // Reset code reader
-    if (codeReaderRef.current) {
-      codeReaderRef.current.reset();
-    }
-
+    streamRef.current = null;
     setScanStatus("");
     setError("");
   };
