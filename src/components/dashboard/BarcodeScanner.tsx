@@ -1,11 +1,10 @@
-
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScanBarcode, X } from "lucide-react";
-import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
+import { BrowserMultiFormatReader, NotFoundException, DecodeHintType, BarcodeFormat } from '@zxing/library';
 
 interface BarcodeScannerProps {
   onBarcodeScanned: (barcode: string) => void;
@@ -59,12 +58,20 @@ export const BarcodeScanner = ({ onBarcodeScanned }: BarcodeScannerProps) => {
       // Initialize code reader with better settings
       if (!codeReaderRef.current) {
         codeReaderRef.current = new BrowserMultiFormatReader();
-        // Set hints for better barcode detection
-        codeReaderRef.current.hints.set(2, true); // Enable EAN_13
-        codeReaderRef.current.hints.set(1, true); // Enable EAN_8
-        codeReaderRef.current.hints.set(32, true); // Enable CODE_128
+        // Set hints for better barcode detection using proper enum values
+        const hints = new Map();
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+          BarcodeFormat.EAN_13,
+          BarcodeFormat.EAN_8,
+          BarcodeFormat.CODE_128,
+          BarcodeFormat.CODE_39,
+          BarcodeFormat.UPC_A,
+          BarcodeFormat.UPC_E
+        ]);
+        codeReaderRef.current.hints = hints;
       }
 
+      // ... keep existing code (camera constraints and stream setup)
       const constraints = {
         video: {
           facingMode: { ideal: 'environment' },
