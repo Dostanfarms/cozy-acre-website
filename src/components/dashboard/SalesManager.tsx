@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -5,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ShoppingCart, Plus, Minus, Trash2 } from "lucide-react";
 import { getProducts, Product, saveSale, Sale } from "@/utils/localStorage";
-import { BarcodeScanner } from "./BarcodeScanner";
+import { EnhancedBarcodeScanner } from "./EnhancedBarcodeScanner";
+import { useToast } from "@/hooks/use-toast";
 
 interface CartItem extends Product {
   quantity: number;
@@ -15,6 +17,7 @@ export const SalesManager = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const { toast } = useToast();
 
   useEffect(() => {
     setProducts(getProducts());
@@ -29,9 +32,16 @@ export const SalesManager = () => {
     const product = products.find(p => p.barcode === barcode);
     if (product) {
       addToCart(product);
-      alert(`Added ${product.name} to cart!`);
+      toast({
+        title: "Product Added",
+        description: `${product.name} added to cart successfully!`,
+      });
     } else {
-      alert(`No product found with barcode: ${barcode}`);
+      toast({
+        title: "Product Not Found",
+        description: `No product found with barcode: ${barcode}`,
+        variant: "destructive",
+      });
     }
   };
 
@@ -124,7 +134,7 @@ export const SalesManager = () => {
                 <CardTitle>Products</CardTitle>
                 <CardDescription>Select products to add to cart or scan barcode</CardDescription>
               </div>
-              <BarcodeScanner onBarcodeScanned={handleBarcodeScanned} />
+              <EnhancedBarcodeScanner onBarcodeScanned={handleBarcodeScanned} />
             </div>
             <Input
               placeholder="Search products..."
